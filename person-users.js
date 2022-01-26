@@ -813,7 +813,7 @@ async function moveUsers(srcConn, destConn, creatorId) {
     let [insertStmt, nextId] = [undefined, -1];
     try {
         let toExclude = '(' + global.excludedUsersIds.join(',') + ')';
-        let condition = `creator=${creatorId} AND user_id NOT IN ${toExclude} AND uuid NOT IN (SELECT uuid FROM ${config.destination.openmrsDb}.users)`;
+        let condition = `creator=${creatorId} AND user_id NOT IN ${toExclude}`;
         let nextUserId = await utils.getNextAutoIncrementId(destConn, 'users');
         let usersToMoveCount = await getUsersCountIgnoreDuplicateUuids(srcConn, condition);
 
