@@ -283,6 +283,9 @@ function prepareUserInsert(rows, nextUserId) {
         if (toBeinserted.length > 1) {
             toBeinserted += ',';
         }
+        if(row['user_id'] === 5328) {
+            utils.logDebug('This is user 5328 is actually Copied');
+        }
         beehive.userMap.set(row['user_id'], nextUserId);
 
         //Some users may be associated with persons that are not moved yet.
@@ -818,6 +821,7 @@ async function moveUsers(srcConn, destConn, creatorId) {
         let usersToMoveCount = await getUsersCountIgnoreDuplicateUuids(srcConn, condition);
 
         let startingRecord = 0;
+        condition += ` AND uuid NOT IN (SELECT uuid FROM ${config.destination.openmrsDb}.users)`;
         let userFetchQuery = `SELECT * FROM ${config.source.openmrsDb}.users WHERE ${condition} order by date_changed, date_created LIMIT `;
 
         let temp = usersToMoveCount;
