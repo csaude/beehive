@@ -2,7 +2,7 @@
 
 ## Introduction
 This nodejs application merges two instances of OpenMRS 2.x databases into one. It
-works by connecting to the two databases and move data from designated source
+works by connecting to the two databases and copy data from designated source
 database into designated destination database. Once run successfully, the
 designated destination database will be a merger of the two initial instances.
 
@@ -15,7 +15,7 @@ designated destination database will be a merger of the two initial instances.
    (See below for the list of tables included)
 
 ## Tables
-Below is the list of tables whose records are moved.
+Below is the list of tables whose records are copied.
 1. *person*
 
 2. *person_attribute_type*
@@ -109,8 +109,8 @@ Change into the project directory, and create a JSON configuration file called
 }
 ```
 ### Explanation of configuration options
-* _batchSize_: This is number of records that will be moved at a time.
-* _generateNewUuids_: Whether to generate UUIDs or not. If you want to move the
+* _batchSize_: This is number of records that will be copied at a time.
+* _generateNewUuids_: Whether to generate UUIDs or not. If you want to copie the
                records with existing UUID which is recommended set this to false
                **note:** This option has to be explicitly provided. Also if chosen the newly
                assigned UUIDs won't correlate with the source records. Mostly used for repetitive

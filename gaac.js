@@ -2,7 +2,7 @@ const utils = require('./utils');
 const logTime = utils.logTime;
 const strValue = utils.stringValue;
 const getCount = utils.getCount;
-const moveAllTableRecords = utils.moveAllTableRecords;
+const copyTableRecords = utils.copyTableRecords;
 const consolidateRecords = utils.consolidateRecords;
 
 let beehive = global.beehive;
@@ -148,22 +148,22 @@ async function consolidateGaacReasonLeavingTypes(srcConn, destConn) {
             prepareGaacReasonLeavingTypeInsert);
 }
 
-async function moveGaacs(srcConn, destConn) {
+async function copyGaacs(srcConn, destConn) {
     let condition = null;
     if(beehive.excludedGaacIds.length > 0) {
         condition = `gaac_id NOT IN (${beehive.excludedGaacIds.join(',')})`;
     }
-    return await moveAllTableRecords(srcConn, destConn, 'gaac', 'gaac_id',
+    return await copyTableRecords(srcConn, destConn, 'gaac', 'gaac_id',
                     prepareGaacInsert, condition);
 }
 
-async function moveGaacMembers(srcConn, destConn) {
-    return await moveAllTableRecords(srcConn, destConn, 'gaac_member',
+async function copyGaacMembers(srcConn, destConn) {
+    return await copyTableRecords(srcConn, destConn, 'gaac_member',
                     'gaac_member_id', prepareGaacMemberInsert);
 }
 
 async function main(srcConn, destConn) {
-    utils.logInfo('Moving GAAC module tables');
+    utils.logInfo('Copying GAAC module tables');
 
     utils.logInfo('Checking if gaac module tables exists in source');
     let [r] = await srcConn.query(`SHOW TABLES LIKE 'gaac%'`);
@@ -177,34 +177,34 @@ async function main(srcConn, destConn) {
     await utils.mapSameUuidsRecords(srcConn, 'gaac', 'gaac_id', beehive.gaacMap, beehive.excludedGaacIds);
     
     utils.logInfo('Consolidating GAAC Affinity types...');
-    let moved = await consolidateGaacAffinityTypes(srcConn, destConn);
-    utils.logOk(`Ok...${moved} records from gaac_affinity_type moved`);
+    let copied = await consolidateGaacAffinityTypes(srcConn, destConn);
+    utils.logOk(`Ok...${copied} records from gaac_affinity_type copied`);
 
     utils.logInfo('Consolidating GAAC Reason for leaving types...');
-    moved = await consolidateGaacReasonLeavingTypes(srcConn, destConn);
-    utils.logOk(`Ok...${moved} records from gaac_reason_leaving_type moved`);
+    copied = await consolidateGaacReasonLeavingTypes(srcConn, destConn);
+    utils.logOk(`Ok...${copied} records from gaac_reason_leaving_type copied`);
 
-    utils.logInfo('Moving Gaacs...');
+    utils.logInfo('Copying Gaacs...');
     let iDestCount = await utils.getCount(destConn, 'gaac');
-    moved = await moveGaacs(srcConn, destConn);
+    copied = await copyGaacs(srcConn, destConn);
 
     let fDestCount = await utils.getCount(destConn, 'gaac');
-    let expectedFinal = iDestCount + moved;
+    let expectedFinal = iDestCount + copied;
 
     if(fDestCount === expectedFinal) {
-        utils.logOk(`OK... ${moved} gaac records moved.`);
+        utils.logOk(`OK... ${copied} gaac records copied.`);
 
-        utils.logInfo('Moving gaac_member records...');
+        utils.logInfo('Copying gaac_member records...');
         iDestCount = await getCount(destConn, 'gaac_member');
 
-        moved = await moveGaacMembers(srcConn, destConn);
+        copied = await copyGaacMembers(srcConn, destConn);
 
         fDestCount = await getCount(destConn, 'gaac_member');
-        expectedFinal = iDestCount + moved;
+        expectedFinal = iDestCount + copied;
         if (fDestCount === expectedFinal) {
-            utils.logOk(`OK... ${moved} gaac_member records moved.`);
+            utils.logOk(`OK... ${copied} gaac_member records copied.`);
         } else {
-            let message = 'There is a problem in moving gaac_member records, ' +
+            let message = 'There is a problem in copying gaac_member records, ' +
                 'the final expected ' +
                 `count (${expectedFinal}) does not equal the actual final ` +
                 `count (${fDestCount})`;
@@ -212,7 +212,7 @@ async function main(srcConn, destConn) {
         }
     }
     else {
-        let message = 'There is a problem in moving gaac records, ' +
+        let message = 'There is a problem in copying gaac records, ' +
             'the final expected ' +
             `count (${expectedFinal}) does not equal the actual final ` +
             `count (${fDestCount})`;

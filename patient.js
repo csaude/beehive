@@ -2,7 +2,7 @@ const utils = require('./utils');
 const logTime = utils.logTime;
 const strValue = utils.stringValue;
 const getCount = utils.getCount;
-const moveAllTableRecords = utils.moveAllTableRecords;
+const copyTableRecords = utils.copyTableRecords;
 
 let beehive = global.beehive;
 
@@ -93,7 +93,7 @@ function prepareIdentifierTypeInsert(rows, nextId) {
 }
 
 function preparePatientIdentifierInsert(rows, nextId) {
-    let insert = 'INSERT IGNORE INTO patient_identifier(patient_identifier_id, patient_id, ' +
+    let insert = 'INSERT INTO patient_identifier(patient_identifier_id, patient_id, ' +
         'identifier, identifier_type, preferred, location_id, creator, ' +
         'date_created, voided, voided_by, date_voided, void_reason, uuid, ' +
         'date_changed, changed_by) VALUES ';
@@ -165,25 +165,29 @@ async function consolidatePatientIdentifierTypes(srcConn, destConn) {
     }
 }
 
-async function movePatients(srcConn, destConn) {
+async function copyPatients(srcConn, destConn) {
     let condition = await patientCopyCondition(destConn);
     if(condition !== null) {
-        return await moveAllTableRecords(srcConn, destConn, 'patient', 'patient_id', preparePatientInsert, condition);
+        return await copyTableRecords(srcConn, destConn, 'patient', 'patient_id', preparePatientInsert, condition);
     }
     return 0;
 }
 
-async function movePatientIdentifiers(srcConn, destConn) {
-    let condition = await patientCopyCondition(destConn);
-    if(condition !== null) {
-        return await moveAllTableRecords(srcConn, destConn, 'patient_identifier',
-            'patient_identifier_id', preparePatientIdentifierInsert, condition);
+async function copyPatientIdentifiers(srcConn, destConn) {
+    let excludedPatientIdentifiersId = [];
+    let condition = null;
+    await utils.mapSameUuidsRecords(srcConn, 'patient_identifier', 'patient_identifier_id', excludedPatientIdentifiersId);
+    if(excludedPatientIdentifiersId.length > 0) {
+        let toExclude = '(' + excludedPatientIdentifiersId.join(',') + ')';
+        condition = `patient_identifier_id NOT IN ${toExclude}`;
     }
-    return 0;    
+    
+    return await copyTableRecords(srcConn, destConn, 'patient_identifier',
+        'patient_identifier_id', preparePatientIdentifierInsert, condition);
 }
 
 async function patientCopyCondition(destConn) {
-    let personIdsMoved = [];
+    let personIdsCopied = [];
     let personMapDestIds = [];
     global.beehive.personMap.forEach(destPersonId => {
         personMapDestIds.push(destPersonId);
@@ -199,12 +203,12 @@ async function patientCopyCondition(destConn) {
 
         global.beehive.personMap.forEach((destPersonId, srcPersonId) => {
             if(!global.excludedPersonIds.includes(srcPersonId) || !correspondingPatientsAlreadyInDest.includes(destPersonId)) {
-                personIdsMoved.push(srcPersonId);
+                personIdsCopied.push(srcPersonId);
             }
         });
 
-        if(personIdsMoved.length > 0) {
-            return `patient_id IN (${personIdsMoved.join(',')})`;
+        if(personIdsCopied.length > 0) {
+            return `patient_id IN (${personIdsCopied.join(',')})`;
         }
         return null;
     } catch(ex) {
@@ -218,23 +222,23 @@ async function patientCopyCondition(destConn) {
 }
 
 async function main(srcConn, destConn) {
-    utils.logInfo('Moving patients...');
+    utils.logInfo('Copying patients...');
     let iDestPatientCount = await getCount(destConn, 'patient');
 
-    let moved = await movePatients(srcConn, destConn);
+    let copied = await copyPatients(srcConn, destConn);
 
     let finalDestPatientCount = await getCount(destConn, 'patient');
-    let expectedFinalCount = iDestPatientCount + moved;
+    let expectedFinalCount = iDestPatientCount + copied;
 
     if (finalDestPatientCount === expectedFinalCount) {
-        utils.logOk(`OK... ${moved} patients moved.`);
+        utils.logOk(`OK... ${copied} patients copied.`);
 
-        utils.logInfo('Consolidating & moving patient identifiers');
+        utils.logInfo('Consolidating & copying patient identifiers');
         await consolidatePatientIdentifierTypes(srcConn, destConn);
-        moved = await movePatientIdentifiers(srcConn, destConn);
-        utils.logOk(`Ok... ${moved} patient identifiers moved.`);
+        copied = await copyPatientIdentifiers(srcConn, destConn);
+        utils.logOk(`Ok... ${copied} patient identifiers copied.`);
     } else {
-        let message = 'There is a problem in moving patients, the final expected ' +
+        let message = 'There is a problem in copying patients, the final expected ' +
             `count (${expectedFinalCount}) does not equal the actual final ` +
             `count (${finalDestPatientCount})`;
         throw new Error(message);

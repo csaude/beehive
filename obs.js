@@ -1,4 +1,4 @@
-const { addDecimalNumbers, subtractDecimalNumbers, shortenInsert, moveAllTableRecords } = require('./utils');
+const { addDecimalNumbers, subtractDecimalNumbers, shortenInsert, copyTableRecords: copyTableRecords } = require('./utils');
 const config = require('./config');
 let utils = require('./utils');
 let strValue = utils.stringValue;
@@ -96,12 +96,12 @@ function prepareObsInsert(rows, nextId) {
     return [insertStatement, nextId];
 }
 
-async function moveObs(srcConn, destConn) {
+async function copyObs(srcConn, destConn) {
     let condition = null;
     if(global.excludedObsIds.length > 0) {
         condition = `obs_id NOT IN (${global.excludedObsIds.join(',')})`;
     }
-    return await moveAllTableRecords(srcConn, destConn, 'obs', 'date_created',
+    return await copyTableRecords(srcConn, destConn, 'obs', 'date_created',
                   prepareObsInsert, condition);
 }
 
@@ -185,21 +185,21 @@ async function updateObsPreviousOrGroupId(connection, idMap, field) {
 }
 
 module.exports = async function(srcConn, destConn) {
-    utils.logInfo('Moving obs...');
+    utils.logInfo('Copying obs...');
     let srcObsCount = await utils.getCountIgnoringDestinationDuplicateUuids(srcConn, 'obs');
     let initialDestCount = await utils.getCount(destConn, 'obs');
     let expectedFinalCount = initialDestCount + srcObsCount;
 
-    let moved = await moveObs(srcConn, destConn);
+    let copied = await copyObs(srcConn, destConn);
     let finalDestCount = await utils.getCount(destConn, 'obs');
 
     if (finalDestCount === expectedFinalCount) {
         // Update obs_group_id & previous_version for records not yet updated
         await updateObsPreviousOrGroupId(destConn, obsWithTheirGroupNotUpdated, 'obs_group_id');
         await updateObsPreviousOrGroupId(destConn, obsWithPreviousNotUpdated, 'previous_version');
-        utils.logOk(`Ok... ${moved} obs moved.`);
+        utils.logOk(`Ok... ${copied} obs copied.`);
     } else {
-        let error = `Problem moving obs: the actual final count ` +
+        let error = `Problem copying obs: the actual final count ` +
             `(${expectedFinalCount}) is not equal to the expected value ` +
             `(${finalDestCount})`;
         throw new Error(error);

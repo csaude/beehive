@@ -16,7 +16,7 @@ const uuidGenerator = require('uuid/v1');
  *  primaryKeyType: String (Default is 'INT')
  *  uuidField: String|Optional (Default value is 'uuid')
  *  condition: String|Optional (A condition to be concatenated to WHERE clause.
- *              Mostly used for skipping records (meant not to be moved))
+ *              Mostly used for skipping records (meant not to be copied))
  *  action: function|Optional (Encapsulate logic of what is to be done for records with
  *           same uuid, (connection, tableName, uuidField, and results are passed as parameters))
  * callback: function| Optional (A function to be called once it is done)

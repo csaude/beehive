@@ -1,11 +1,11 @@
 let utils = require('./utils');
 let strValue = utils.stringValue;
-let moveAllTableRecords = utils.moveAllTableRecords;
+let copyTableRecords = utils.copyTableRecords;
 
 let beehive = global.beehive;
 
 function prepareEncounterRoleInsert(rows, nextId) {
-    let insert = 'INSERT IGNORE INTO encounter_role(encounter_role_id, name, description, ' +
+    let insert = 'INSERT INTO encounter_role(encounter_role_id, name, description, ' +
         'creator, date_created, changed_by, date_changed, retired, retired_by,' +
         'date_retired, retire_reason, uuid) VALUES ';
 
@@ -37,7 +37,7 @@ function prepareEncounterRoleInsert(rows, nextId) {
 }
 
 function prepareEncounterProviderInsert(rows, nextId) {
-    let insert = 'INSERT IGNORE INTO encounter_provider(encounter_provider_id, ' +
+    let insert = 'INSERT INTO encounter_provider(encounter_provider_id, ' +
         'encounter_id, provider_id, encounter_role_id, creator, date_created, ' +
         'changed_by, date_changed, voided, voided_by, date_voided, ' +
         'void_reason, uuid) VALUES ';
@@ -67,7 +67,7 @@ function prepareEncounterProviderInsert(rows, nextId) {
 }
 
 function prepareEncounterTypeInsert(rows, nextId) {
-    let insert = 'INSERT IGNORE INTO encounter_type(encounter_type_id, name, ' +
+    let insert = 'INSERT INTO encounter_type(encounter_type_id, name, ' +
         'description, creator, date_created, retired, retired_by, ' +
         'date_retired, retire_reason, uuid, view_privilege, edit_privilege ';
     
@@ -111,7 +111,7 @@ function prepareEncounterTypeInsert(rows, nextId) {
 }
 
 function prepareEncounterInsert(rows, nextId) {
-    let insert = 'INSERT IGNORE INTO encounter(encounter_id, encounter_type, patient_id, ' +
+    let insert = 'INSERT INTO encounter(encounter_id, encounter_type, patient_id, ' +
         'location_id, form_id, visit_id, encounter_datetime, creator, date_created, ' +
         'changed_by, date_changed, voided, voided_by, date_voided, ' +
         'void_reason, uuid) VALUES ';
@@ -211,60 +211,67 @@ async function consolidateEncounterRoles(srcConn, destConn) {
     return 0;
 }
 
-async function moveEncounters(srcConn, destConn) {
+async function copyEncounters(srcConn, destConn) {
     let condition = false;
     if(global.excludedEncounterIds.length > 0) {
         condition = `encounter_id NOT IN (${global.excludedEncounterIds.join(',')})`;
     } 
-    return await moveAllTableRecords(srcConn, destConn, 'encounter',
+    return await copyTableRecords(srcConn, destConn, 'encounter',
         'encounter_id', prepareEncounterInsert, condition);
 }
 
-async function moveEncounterProviders(srcConn, destConn) {
-    return await moveAllTableRecords(srcConn, destConn, 'encounter_provider',
-        'encounter_provider_id', prepareEncounterProviderInsert);
+async function copyEncounterProviders(srcConn, destConn) {
+    let excludedEncounterProviderIds = [];
+    let condition = false;
+    await utils.mapSameUuidsRecords(srcConn, 'encounter_provider', 'encounter_provider_id', excludedEncounterProviderIds);
+    if(excludedEncounterProviderIds.length > 0) {
+        let toExclude = '(' + excludedEncounterProviderIds.join(',') + ')';
+        condition = `encounter_provider_id NOT IN ${toExclude}`;
+    }
+    return await copyTableRecords(srcConn, destConn, 'encounter_provider',
+        'encounter_provider_id', prepareEncounterProviderInsert, condition);
 }
 
 async function main(srcConn, destConn) {
     utils.logInfo('Consolidating encounter types...');
-    let movedTypes = await consolidateEncounterTypes(srcConn, destConn);
-    utils.logOk(`Ok... ${movedTypes} encounter types moved.`);
+    let copiedTypes = await consolidateEncounterTypes(srcConn, destConn);
+    utils.logOk(`Ok... ${copiedTypes} encounter types copied.`);
 
     utils.logInfo('Consolidating encounter roles...');
-    let movedEncRoles = await consolidateEncounterRoles(srcConn, destConn);
-    utils.logOk(`Ok... ${movedEncRoles} encounter roles moved.`);
+    let copiedEncRoles = await consolidateEncounterRoles(srcConn, destConn);
+    utils.logOk(`Ok... ${copiedEncRoles} encounter roles copied.`);
 
-    utils.logInfo('Moving encounters...');
+    utils.logInfo('Copying encounters...');
     let srcEncCount = await utils.getCountIgnoringDestinationDuplicateUuids(srcConn, 'encounter');
     let initialDestCount = await utils.getCount(destConn, 'encounter');
     let expectedFinalCount = initialDestCount + srcEncCount;
 
-    let moved = await moveEncounters(srcConn, destConn);
+    let copied = await copyEncounters(srcConn, destConn);
     utils.logDebug(`Expected number of encounters to be copied is ${srcEncCount}`);
-    utils.logDebug(`Actual number of copied encounters is ${moved}`);
+    utils.logDebug(`Actual number of copied encounters is ${copied}`);
 
     let finalDestCount = await utils.getCount(destConn, 'encounter');
     if (finalDestCount === expectedFinalCount) {
-        utils.logOk(`Ok... ${moved} encounters moved.`);
+        utils.logOk(`Ok... ${copied} encounters copied.`);
     } else {
-        let error = `Problem moving encounters: the actual final count ` +
+        let error = `Problem copying encounters: the actual final count ` +
             `(${finalDestCount}) is not equal to the expected value ` +
             `(${expectedFinalCount})`;
         throw new Error(error);
     }
 
-    utils.logInfo('Moving encounter providers...');
+    utils.logInfo('Copying encounter providers...');
     let srcCount = await utils.getCountIgnoringDestinationDuplicateUuids(srcConn, 'encounter_provider');
     initialDestCount = await utils.getCount(destConn, 'encounter_provider');
     expectedFinalCount = initialDestCount + srcCount;
 
-    moved = await moveEncounterProviders(srcConn, destConn);
+    copied = await copyEncounterProviders(srcConn, destConn);
 
     finalDestCount = await utils.getCount(destConn, 'encounter_provider');
     if (finalDestCount === expectedFinalCount) {
-        utils.logOk(`Ok... ${moved} encounter_provider records moved.`);
+        utils.logOk(`Ok... ${copied} encounter_provider records copied.`);
     } else {
-        let error = `Problem moving encounter_providers: the actual final count ` +
+        let error = `Problem copying encounter_providers: the actual final count ` +
             `(${expectedFinalCount}) is not equal to the expected value ` +
             `(${finalDestCount})`;
         throw new Error(error);

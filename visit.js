@@ -1,6 +1,6 @@
 let utils = require('./utils');
 let strValue = utils.stringValue;
-let moveAllTableRecords = utils.moveAllTableRecords;
+let copyTableRecords = utils.copyTableRecords;
 
 let beehive = global.beehive;
 
@@ -106,12 +106,12 @@ async function consolidateVisitTypes(srcConn, destConn) {
   }
 }
 
-async function moveVisits(srcConn, destConn) {
+async function copyVisits(srcConn, destConn) {
   let condition = null;
   if(global.excludedVisitIds.length > 0) {
       condition = `visit_id NOT IN (${global.excludedVisitIds.join(',')})`;
   }
-  return await moveAllTableRecords(srcConn, destConn, 'visit', 'visit_id',
+  return await copyTableRecords(srcConn, destConn, 'visit', 'visit_id',
                   prepareVisitInsert, condition);
 }
 
@@ -124,14 +124,14 @@ async function main(srcConn, destConn) {
     let initialDestCount = await utils.getCount(destConn, 'visit');
 
     utils.logInfo('Moving visits...');
-    let moved = await moveVisits(srcConn, destConn);
-    utils.logDebug('Number of visit records copied: ', moved);
+    let copied = await copyVisits(srcConn, destConn);
+    utils.logDebug('Number of visit records copied: ', copied);
     
     let finalDestCount = await utils.getCount(destConn, 'visit');
     let expectedFinalCount = initialDestCount + srcVisitCount;
 
     if(finalDestCount === expectedFinalCount) {
-        utils.logOk(`Ok... ${moved}`);
+        utils.logOk(`Ok... ${copied}`);
     }
     else {
         let error = `Problem moving visits: the actual final count ` +

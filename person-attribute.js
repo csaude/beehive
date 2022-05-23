@@ -2,7 +2,7 @@
 const utils = require('./utils');
 const strValue = utils.stringValue;
 const uuid = utils.uuid;
-const moveAllTableRecords = utils.moveAllTableRecords;
+const copyTableRecords = utils.copyTableRecords;
 const config = require('./config');
 
 const BATCH_SIZE = config.batchSize || 200;
@@ -128,10 +128,15 @@ async function findPersonAttributeTypesWithLocationValue(srcConn) {
     }
 }
 
-async function movePersonAttributes(srcConn, destConn) {
-    let excluded = '(' + global.excludedPersonIds.join(',') + ')';
-    let condition = `person_id NOT IN ${excluded}`;
-    return await moveAllTableRecords(srcConn, destConn, 'person_attribute',
+async function copyPersonAttributes(srcConn, destConn) {
+    let excludedPersonAttributesIds = [];
+    let condition = null;
+    await utils.mapSameUuidsRecords(srcConn, 'person_attribute', 'person_attribute_id', excludedPersonAttributesIds);
+    if(excludedPersonAttributesIds.length > 0) {
+        let toExclude = '(' + excludedPersonAttributesIds.join(',') + ')';
+        condition = `person_attribute_id NOT IN ${toExclude}`;
+    }
+    return await copyTableRecords(srcConn, destConn, 'person_attribute',
         'person_attribute_id', preparePersonAttributeInsert, condition);
 }
 
@@ -139,8 +144,8 @@ async function main(srcConn, destConn) {
     utils.logInfo('Copying person attributes to destination...');
     await consolidatePersonAttributeTypes(srcConn, destConn);
     findPersonAttributeTypesWithLocationValue(srcConn);
-    await movePersonAttributes(srcConn, destConn);
-    utils.logOk(`Ok... Person attributes moved`)
+    await copyPersonAttributes(srcConn, destConn);
+    utils.logOk(`Ok... Person attributes copied`)
 }
 
 module.exports = main;

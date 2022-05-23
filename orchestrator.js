@@ -4,7 +4,7 @@ const preparation = require('./preparation');
 const integrityChecks = require('./integrity-checks');
 const prepare = preparation.prepare;
 const insertSource = preparation.insertSource;
-const movePersonsUsersAndAssociatedTables = require('./person-users');
+const copyPersonsUsersAndAssociatedTables = require('./person-users');
 const locationsCopier = require('./location');
 const patientsCopier = require('./patient');
 const programsCopier = require('./patient-programs');
@@ -49,7 +49,7 @@ async function orchestration() {
         srcConn = await connection(config.source);
         destConn = await connection(config.destination);
 
-        utils.logInfo('INFO: Detecting Openmrs Data Model Version');
+        utils.logInfo('Detecting Openmrs Data Model Version');
         let getAllergyColumnQuery = (databaseName) => {
             return 'SELECT count(*) AS col_count from information_schema.COLUMNS ' + 
                 `WHERE TABLE_SCHEMA = '${databaseName}' AND TABLE_NAME = 'patient' ` +
@@ -65,14 +65,14 @@ async function orchestration() {
         let destColCount = results[0]['col_count'];
 
         if(srcColCount !== destColCount) {
-            utils.logInfo(`INFO: Copying between different openmrs data models, possible data losses`);
+            utils.logInfo('Copying between different openmrs data models, possible data losses');
         } else if(srcColCount === 0 && destColCount === 0) {
-            utils.logInfo(`INFO: Openmrs Data Model Version 1.x Detected`);
+            utils.logInfo('Openmrs Data Model Version 1.x Detected');
         } else if(srcColCount === 1 && destColCount === 1) {
-            utils.logInfo(`INFO: Openmrs Data Model Version 2.x Detected`)
+            utils.logInfo('Openmrs Data Model Version 2.x Detected');
             global.openmrsDataModelVersion = 2;
         } else {
-            utils.logInfo('INFO: Could not detect Openmrs Data Model Version, presuming 1.x');
+            utils.logInfo('Could not detect Openmrs Data Model Version, presuming 1.x');
         }
 
         if(dryRun) {
@@ -88,11 +88,11 @@ async function orchestration() {
 
         utils.logInfo(logTime(), ': Starting data migration ...');
         destConn.query('START TRANSACTION');
-        await movePersonsUsersAndAssociatedTables(srcConn, destConn);
+        await copyPersonsUsersAndAssociatedTables(srcConn, destConn);
 
         utils.logInfo('Consolidating locations...');
-        let movedLocations = await locationsCopier(srcConn, destConn);
-        utils.logOk(`Ok...${movedLocations} locations moved.`);
+        let copiedLocations = await locationsCopier(srcConn, destConn);
+        utils.logOk(`Ok...${copiedLocations} locations copied.`);
 
         //patients & identifiers
         await patientsCopier(srcConn, destConn);
@@ -133,7 +133,7 @@ async function orchestration() {
     } catch (ex) {
         if(destConn) destConn.query('ROLLBACK');
         utils.logError(ex);
-        utils.logInfo('Aborting...Rolled back, no data has been moved');
+        utils.logInfo('Aborting...Rolled back, no data has been copied');
     } finally {
         if (srcConn) srcConn.end();
         if (destConn) destConn.end();

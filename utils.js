@@ -162,20 +162,20 @@ let consolidateTableRecords = async function(srcConn, destConn, table,
 }
 
 /**
- * Utility function that moves all table records in config.batchSize batches
+ * Utility function that copies all table records in config.batchSize batches
  * @param srcConn
  * @param destConn
- * @param tableName:String Name of table whose records are to be moved.
+ * @param tableName:String Name of table whose records are to be copied.
  * @param orderColumn:String Name of the column to order records with.
  * @param insertQueryPrepareFunction: function prepares the insert query
  * @param condition: String, an sql condition that is appended to count & fetch queries.
- * @return count of records moved. (or a promise that resolves to count)
+ * @return count of records copied. (or a promise that resolves to count)
  */
-let moveAllTableRecords = async function(srcConn, destConn, tableName, orderColumn,
+let copyTableRecords = async function(srcConn, destConn, tableName, orderColumn,
     insertQueryPrepareFunction, condition) {
     // Get the count to be pushed
-    let countToMove = await getCount(srcConn, tableName, condition);
-    logDebug(`Table ${tableName}  number of records to be moved is ${countToMove}`);
+    let countToCopy = await getCount(srcConn, tableName, condition);
+    logDebug(`Table ${tableName}  number of records to be copied is ${countToCopy}`);
     let nextAutoIncr = await getNextAutoIncrementId(destConn, tableName);
 
     let fetchQuery = `SELECT * FROM ${tableName} `;
@@ -184,8 +184,8 @@ let moveAllTableRecords = async function(srcConn, destConn, tableName, orderColu
     }
     fetchQuery += `ORDER by ${orderColumn} LIMIT `;
     let start = 0;
-    let temp = countToMove;
-    let moved = 0;
+    let temp = countToCopy;
+    let copied = 0;
     let queryLogged = false;
     let query = null;
     let [q, nextId] = [null, -1];
@@ -193,11 +193,9 @@ let moveAllTableRecords = async function(srcConn, destConn, tableName, orderColu
         while (temp % config.batchSize > 0) {
             query = fetchQuery;
             if (Math.floor(temp / config.batchSize) > 0) {
-                // moved += config.batchSize;
                 query += start + ', ' + config.batchSize;
                 temp = subtractDecimalNumbers(temp, config.batchSize);
             } else {
-                // moved += temp;
                 query += start + ', ' + temp;
                 temp = 0;
             }
@@ -212,12 +210,12 @@ let moveAllTableRecords = async function(srcConn, destConn, tableName, orderColu
 
             if(q) {
                 [r] = await destConn.query(q);
-                moved =  addDecimalNumbers(moved, r.affectedRows);
+                copied =  addDecimalNumbers(copied, r.affectedRows);
             }
 
             nextAutoIncr = nextId;
         }
-        return moved;
+        return copied;
     }
     catch(ex) {
         logError(`An error occured when moving ${tableName} records`);
@@ -231,24 +229,24 @@ let moveAllTableRecords = async function(srcConn, destConn, tableName, orderColu
 }
 
 let logError = function(...args) {
-    args.splice(0, 0, "\x1b[31m");
+    args.splice(0, 0, "\x1b[31m ERROR:");
     console.error.apply(null, args);
 }
 
 let logOk = function(...args) {
-    args.splice(0, 0, "\x1b[32m");
+    args.splice(0, 0, "\x1b[32m OK:");
     console.log.apply(null, args);
 }
 
 let logDebug = function(...args) {
-    args.splice(0, 0, "\x1b[33m");
+    args.splice(0, 0, "\x1b[33m DEBUG:");
     if (config.debug) {
         console.log.apply(null, args);
     }
 }
 
 let logInfo = function(...args) {
-    args.splice(0, 0, "\x1b[37m");
+    args.splice(0, 0, "\x1b[37m INFO:");
     console.log.apply(null, args);
 }
 
@@ -280,15 +278,22 @@ async function personIdsToexclude(connection) {
  * @param {String} column 
  * @param {Map} map 
  */
-async function mapSameUuidsRecords(connection, table, column, map, arrayOfExcludedIds) {
+async function mapSameUuidsRecords(connection, table, column, arrayOfExcludedIds, map) {
     let query = `SELECT t1.${column} source_value, t2.${column} dest_value `
         + `FROM ${config.source.openmrsDb}.${table} t1 INNER JOIN ${config.destination.openmrsDb}.${table} t2 using(uuid)`;
     try {
         let [records] = await connection.query(query);
-        records.forEach(record => {
-            map.set(record['source_value'], record['dest_value']);
-            arrayOfExcludedIds.push(record['source_value']);
-        });
+        if(map) {
+            records.forEach(record => {
+                map.set(record['source_value'], record['dest_value']);
+                arrayOfExcludedIds.push(record['source_value']);
+            });
+        } else {
+            records.forEach(record => {
+                arrayOfExcludedIds.push(record['source_value']);
+            });
+        }
+        
     } catch(trouble) {
         logError(`Error while mapping same uuids records for table ${table}`);
         logError(`Query during error: ${query}`);
@@ -301,7 +306,7 @@ module.exports = {
     getCount: getCount,
     getCountIgnoringDestinationDuplicateUuids: getCountIgnoringDestinationDuplicateUuids,
     stringValue: stringValue,
-    moveAllTableRecords: moveAllTableRecords,
+    copyTableRecords: copyTableRecords,
     formatDate: formatDate,
     logTime: logTime,
     logOk: logOk,

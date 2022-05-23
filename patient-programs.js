@@ -2,7 +2,7 @@ const utils = require('./utils');
 const logTime = utils.logTime;
 const strValue = utils.stringValue;
 const getCount = utils.getCount;
-const moveAllTableRecords = utils.moveAllTableRecords;
+const copyTableRecords = utils.copyTableRecords;
 const consolidateRecords = utils.consolidateRecords;
 
 let beehive = global.beehive;
@@ -12,7 +12,7 @@ beehive.patientProgramMap = new Map();
 beehive.programWorkflowStateMap = new Map();
 
 function prepareProgramInsert(rows, nextId) {
-    let insert = 'INSERT IGNORE INTO program(program_id, concept_id, creator, ' +
+    let insert = 'INSERT INTO program(program_id, concept_id, creator, ' +
             'date_created, changed_by, date_changed, retired, name, ' +
             'description, uuid, outcomes_concept_id) VALUES ';
 
@@ -41,7 +41,7 @@ function prepareProgramInsert(rows, nextId) {
 }
 
 function prepareProgramWorkflowInsert(rows, nextId) {
-    let insert = 'INSERT IGNORE INTO program_workflow(program_workflow_id, ' +
+    let insert = 'INSERT INTO program_workflow(program_workflow_id, ' +
             'program_id, concept_id, creator, date_created, retired, ' +
             'changed_by, date_changed, uuid) VALUES ';
 
@@ -70,7 +70,7 @@ function prepareProgramWorkflowInsert(rows, nextId) {
 }
 
 function prepareProgramWorkflowStateInsert(rows, nextId) {
-    let insert = 'INSERT IGNORE INTO program_workflow_state(program_workflow_state_id, ' +
+    let insert = 'INSERT INTO program_workflow_state(program_workflow_state_id, ' +
         'program_workflow_id, ' +
         'concept_id, initial, terminal, creator, date_created, retired, ' +
         'changed_by, date_changed, uuid) VALUES ';
@@ -101,7 +101,7 @@ function prepareProgramWorkflowStateInsert(rows, nextId) {
 }
 
 function preparePatientProgramInsert(rows, nextId) {
-    let insert = 'INSERT IGNORE INTO patient_program(patient_program_id, patient_id, ' +
+    let insert = 'INSERT INTO patient_program(patient_program_id, patient_id, ' +
         'program_id, ' +
         'date_enrolled, date_completed, creator, date_created, changed_by, ' +
         'date_changed, voided, voided_by, date_voided, void_reason, uuid, ' +
@@ -145,7 +145,7 @@ function preparePatientProgramInsert(rows, nextId) {
 }
 
 function preparePatientStateInsert(rows) {
-    let insert = 'INSERT IGNORE INTO patient_state(patient_program_id, state, ' +
+    let insert = 'INSERT INTO patient_state(patient_program_id, state, ' +
             'start_date, end_date, creator, date_created, changed_by, ' +
             'date_changed, voided, voided_by, date_voided, void_reason, ' +
             'uuid) VALUES ';
@@ -216,58 +216,72 @@ async function consolidateProgramWorkflowStates(srcConn, destConn) {
             prepareProgramWorkflowStateInsert);
 }
 
-async function movePatientPrograms(srcConn, destConn) {
-    return await moveAllTableRecords(srcConn, destConn, 'patient_program',
-                    'patient_program_id', preparePatientProgramInsert);
+async function copyPatientPrograms(srcConn, destConn) {
+    let excludedPatientProgramsIds = [];
+    let condition = null;
+    await utils.mapSameUuidsRecords(srcConn, 'patient_program', 'patient_program_id', excludedPatientProgramsIds);
+    if(excludedPatientProgramsIds.length > 0) {
+        let toExclude = '(' + excludedPatientProgramsIds.join(',') + ')';
+        condition = `patient_program_id NOT IN ${toExclude}`;
+    }
+    return await copyTableRecords(srcConn, destConn, 'patient_program',
+                    'patient_program_id', preparePatientProgramInsert, condition);
 }
 
-async function movePatientStates(srcConn, destConn) {
-    return await moveAllTableRecords(srcConn, destConn, 'patient_state',
-                    'patient_state_id', preparePatientStateInsert);
+async function copyPatientStates(srcConn, destConn) {
+    let excludedPatientStatesIds = [];
+    let condition = null;
+    await utils.mapSameUuidsRecords(srcConn, 'patient_state', 'patient_state_id', excludedPatientStatesIds);
+    if(excludedPatientStatesIds.length > 0) {
+        let toExclude = '(' + excludedPatientStatesIds.join(',') + ')';
+        condition = `patient_state_id NOT IN ${toExclude}`;
+    }
+    return await copyTableRecords(srcConn, destConn, 'patient_state',
+                    'patient_state_id', preparePatientStateInsert, condition);
 }
 
 async function main(srcConn, destConn) {
     utils.logInfo('Consolidating programs...');
-    let moved = await consolidatePrograms(srcConn, destConn);
-    utils.logOk(`OK... ${moved} program copied to destination.`);
+    let copied = await consolidatePrograms(srcConn, destConn);
+    utils.logOk(`OK... ${copied} program copied to destination.`);
 
     utils.logInfo('Consolidating programs workflows...');
-    moved = await consolidateProgramWorkflows(srcConn, destConn);
-    utils.logOk(`OK... ${moved} program workflows copied to destination.`);
+    copied = await consolidateProgramWorkflows(srcConn, destConn);
+    utils.logOk(`OK... ${copied} program workflows copied to destination.`);
 
     utils.logInfo('Consolidating programs workflow states...');
-    moved = await consolidateProgramWorkflowStates(srcConn, destConn);
-    utils.logOk(`OK... ${moved} program work flow states copied to destination.`);
+    copied = await consolidateProgramWorkflowStates(srcConn, destConn);
+    utils.logOk(`OK... ${copied} program work flow states copied to destination.`);
 
-    utils.logInfo('Moving patients programs...');
+    utils.logInfo('Copying patients programs...');
     let iDestCount = await getCount(destConn, 'patient_program');
 
-    moved = await movePatientPrograms(srcConn, destConn);
+    copied = await copyPatientPrograms(srcConn, destConn);
 
     let fDestCount = await getCount(destConn, 'patient_program');
-    let expectedFinalCount = iDestCount + moved;
+    let expectedFinalCount = iDestCount + copied;
 
     if (fDestCount === expectedFinalCount) {
-        utils.logOk(`OK... ${moved} patient_program records moved.`);
+        utils.logOk(`OK... ${copied} patient_program records copied.`);
 
-        utils.logInfo('Moving patient_state records...');
+        utils.logInfo('Copying patient_state records...');
         iDestCount = await getCount(destConn, 'patient_state');
 
-        moved = await movePatientStates(srcConn, destConn);
+        copied = await copyPatientStates(srcConn, destConn);
 
         fDestCount = await getCount(destConn, 'patient_state');
-        expectedFinalCount = iDestCount + moved;
+        expectedFinalCount = iDestCount + copied;
         if (fDestCount === expectedFinalCount) {
-            utils.logOk(`OK... ${moved} patient_state records moved.`);
+            utils.logOk(`OK... ${copied} patient_state records copied.`);
         } else {
-            let message = 'There is a problem in moving patient_state records, ' +
+            let message = 'There is a problem in copying patient_state records, ' +
                 'the final expected ' +
                 `count (${expectedFinalCount}) does not equal the actual final ` +
                 `count (${fDestCount})`;
             throw new Error(message);
         }
     } else {
-        let message = 'There is a problem in moving patient_program records, ' +
+        let message = 'There is a problem in copying patient_program records, ' +
             'the final expected ' +
             `count (${expectedFinalCount}) does not equal the actual final ` +
             `count (${fDestCount})`;

@@ -1,13 +1,13 @@
 const config = require('./config');
 const utils = require('./utils');
 const strValue = utils.stringValue;
-const moveAllTableRecords = utils.moveAllTableRecords;
+const copyTableRecords = utils.copyTableRecords;
 const consolidateTableRecords = utils.consolidateRecords;
 
 const beehive = global.beehive;
 
 function prepareProviderInsert(rows, nextId) {
-    let insert = 'INSERT IGNORE INTO provider(provider_id, person_id, name, identifier, ' +
+    let insert = 'INSERT INTO provider(provider_id, person_id, name, identifier, ' +
         'creator, date_created, changed_by, date_changed, retired, retired_by, ' +
         'date_retired, retire_reason, uuid';
 
@@ -151,32 +151,39 @@ async function consolidateProviders(srcConn, destConn) {
         'provider_id', global.beehive.providerMap, prepareProviderInsert);
 }
 
-async function moveProviderAttributes(srcConn, destConn) {
-    return await moveAllTableRecords(srcConn, destConn, 'provider_attribute',
-        'provider_attribute_id', prepareProviderAttributeInsert);
+async function copyProviderAttributes(srcConn, destConn) {
+    let excludedProviderAttributesIds = [];
+    let condition = null;
+    await utils.mapSameUuidsRecords(srcConn, 'provider_attribute', 'provider_attribute_id', excludedProviderAttributesIds);
+    if(excludedProviderAttributesIds.length > 0) {
+        let toExclude = '(' + excludedProviderAttributesIds.join(',') + ')';
+        condition = `provider_attribute_id NOT IN ${toExclude}`;
+    }
+    return await copyTableRecords(srcConn, destConn, 'provider_attribute',
+        'provider_attribute_id', prepareProviderAttributeInsert, condition);
 }
 
 async function main(srcConn, destConn) {
     let initialDestCount = await utils.getCount(destConn, 'provider');
 
-    utils.logInfo('Moving providers...');
-    let moved = await consolidateProviders(srcConn, destConn);
+    utils.logInfo('Copying providers...');
+    let copied = await consolidateProviders(srcConn, destConn);
 
     let finalDestCount = await utils.getCount(destConn, 'provider');
-    let expectedFinalCount = initialDestCount + moved;
+    let expectedFinalCount = initialDestCount + copied;
     if(expectedFinalCount === finalDestCount) {
-        utils.logOk(`Ok... ${moved} providers moved.`);
+        utils.logOk(`Ok... ${copied} providers copied.`);
 
         utils.logInfo('Consolidating provider attribute types...');
         await consolidateProviderAttributeTypes(srcConn, destConn);
         utils.logOk('Ok...');
 
-        utils.logInfo('Moving provider attributes...');
-        let movedAttributes = await moveProviderAttributes(srcConn, destConn);
-        utils.logOk(`Ok... ${movedAttributes} provider attributes moved.`);
+        utils.logInfo('Copying provider attributes...');
+        let copiedAttributes = await copyProviderAttributes(srcConn, destConn);
+        utils.logOk(`Ok... ${copiedAttributes} provider attributes copied.`);
     }
     else {
-        let error = `Problem moving providers: the actual final count ` +
+        let error = `Problem copying providers: the actual final count ` +
             `of ${finalDestCount} is not equal to the expected value ` +
             `of ${expectedFinalCount}`;
         throw new Error(error);
