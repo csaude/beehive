@@ -104,17 +104,11 @@ Change into the project directory, and create a JSON configuration file called
         "openmrsDb": "openmrs2"
     },
     "batchSize": 16000,
-    "generateNewUuids": false,       //Must be provided.
     "debug": false
 }
 ```
 ### Explanation of configuration options
 * _batchSize_: This is number of records that will be copied at a time.
-* _generateNewUuids_: Whether to generate UUIDs or not. If you want to copie the
-               records with existing UUID which is recommended set this to false
-               **note:** This option has to be explicitly provided. Also if chosen the newly
-               assigned UUIDs won't correlate with the source records. Mostly used for repetitive
-               runs during TESTING. IN production to maintain UUIDs across instances it must be FALSE.
 * _debug_: Whether to print debug level statements.
 
 **Note:** Substitute the given values with appropriate values.

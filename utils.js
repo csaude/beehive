@@ -1,7 +1,6 @@
 'use strict';
 const moment = require('moment');
 const mysql = require('mysql2');
-const uuidGenerator = require('uuid/v1');
 const config = require('./config');
 
 if (config.batchSize === undefined) {
@@ -65,7 +64,6 @@ let stringValue = function(value) {
 }
 
 function uuid(existing) {
-    if (config.generateNewUuids) return `'${uuidGenerator()}'`;
     return `'${existing}'`;
 }
 

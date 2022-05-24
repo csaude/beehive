@@ -29,12 +29,6 @@ async function orchestration() {
         initialErrors.push('Error: source.location not specified in config.json file');
     }
 
-    if (config.generateNewUuids === undefined) {
-        let msg = 'Error: generateNewUuids option must be explicitly set to true/false ' +
-            'in config.json file';
-        initialErrors.push(msg);
-    }
-
     if (initialErrors.length > 0) {
         initialErrors.forEach(error => {
             utils.logError(error);
