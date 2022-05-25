@@ -3,7 +3,7 @@ const utils = require('./utils');
 const strValue = utils.stringValue;
 const uuid = utils.uuid;
 const logTime = utils.logTime;
-const copyAllTableRecords = utils.copyTableRecords;
+const copyTableRecords = utils.copyTableRecords;
 const config = require('./config');
 
 const BATCH_SIZE = config.batchSize || 200;
@@ -229,7 +229,7 @@ function prepareRelationshipInsert(rows, nextId) {
 }
 
 function prepareUserInsert(rows, nextUserId) {
-    let insert = 'INSERT IGNORE INTO users(user_id, system_id, username, password, salt,' +
+    let insert = 'INSERT INTO users(user_id, system_id, username, password, salt,' +
         'secret_question, secret_answer, creator, date_created, ' +
         'date_changed, person_id, retired, ' +
         'date_retired, retire_reason, uuid) VALUES ';
@@ -446,64 +446,22 @@ async function consolidateRolesAndPrivileges(srcConn, destConn) {
     }
 }
 
-async function consolidateRelationshipTypes(srcConn, destConn) {
-    let query = 'SELECT * FROM relationship_type';
-    let [sRelshipTypes] = await srcConn.query(query);
-    let [dRelshipTypes] = await destConn.query(query);
-
-    let toAdd = [];
-    sRelshipTypes.forEach(sRelshipType => {
-        let match = dRelshipTypes.find(dRelshipType => {
-            return (sRelshipType['a_is_to_b'] === dRelshipType['a_is_to_b'] &&
-                sRelshipType['b_is_to_a'] === dRelshipType['b_is_to_a'] ||
-                sRelshipType['uuid'] === dRelshipType['uuid']);
-        });
-        if (match !== undefined) {
-            beehive.relationshipTypeMap.set(sRelshipType['relationship_type_id'],
-                match['relationship_type_id']);
-        } else {
-            toAdd.push(sRelshipType);
-        }
-    });
-    if (toAdd.length > 0) {
-        let nextRelationshipTypeId =
-            await utils.getNextAutoIncrementId(destConn, 'relationship_type');
-
-        let [stmt] = prepareRelationshipTypeInsert(toAdd, nextRelationshipTypeId);
-        try {
-            await destConn.query(stmt);
-        } catch(ex) {
-            utils.logError('Error: While consolidating relationship types');
-            if(stmt) {
-                utils.logError('SQL statement during error:');
-                utils.logError(stmt);
-            }
-            throw ex;
-        }
-    }
+async function copyRelationshipTypes(srcConn, destConn) {
+    let condition = await utils.getExcludedIdsCondition(srcConn, 'relationship_type',
+            'relationship_type_id', beehive.relationshipTypeMap);
+    return await copyTableRecords(srcConn, destConn, 'relationship_type',
+            'relationship_type_id', prepareRelationshipTypeInsert, condition);
 }
 
 async function copyRelationships(srcConn, destConn) {
-    let excludedRelationshipsIds = [];
-    let condition = null;
-    await utils.mapSameUuidsRecords(srcConn, 'relationship', 'relationship_id', excludedRelationshipsIds);
-    if(excludedRelationshipsIds.length > 0) {
-        let toExclude = '(' + excludedRelationshipsIds.join(',') + ')';
-        condition = `relationship_id NOT IN ${toExclude}`;
-    }
-    return await copyAllTableRecords(srcConn, destConn, 'relationship',
+    let condition = await utils.getExcludedIdsCondition(srcConn, 'relationship', 'relationship_id');
+    return await copyTableRecords(srcConn, destConn, 'relationship',
         'relationship_id', prepareRelationshipInsert, condition);
 }
 
 async function copyPersonAddresses(srcConn, destConn) {
-    let excludedIds = [];
-    let condition = null;
-    await utils.mapSameUuidsRecords(srcConn, 'person_address', 'person_address_id', excludedIds);
-    if(excludedIds.length > 0) {
-        let toExclude = '(' + excludedIds.join(',') + ')';
-        condition = `person_address_id NOT IN ${toExclude}`;
-    }
-    return await copyAllTableRecords(srcConn, destConn, 'person_address',
+    let condition = await utils.getExcludedIdsCondition(srcConn, 'person_address', 'person_address_id');
+    return await copyTableRecords(srcConn, destConn, 'person_address',
         'person_address_id', preparePersonAddressInsert, condition);
 }
 
@@ -648,7 +606,7 @@ async function copyPersonNames(srcConn, destConn) {
         let toExclude = '(' + excludedPersonNamesIds.join(',') + ')';
         condition = `person_name_id NOT IN ${toExclude}`;
     }
-    return await copyAllTableRecords(srcConn, destConn, 'person_name',
+    return await copyTableRecords(srcConn, destConn, 'person_name',
         'person_name_id', preparePersonNameInsert, condition);
 }
 
@@ -1005,7 +963,7 @@ async function main(srcConn, destConn) {
         utils.logOk('Ok...');
 
         utils.logInfo('Update copied persons relationships...');
-        await consolidateRelationshipTypes(srcConn, destConn);
+        await copyRelationshipTypes(srcConn, destConn);
         await copyRelationships(srcConn, destConn);
         utils.logOk('Ok...');
 

@@ -2,11 +2,6 @@
     global.beehive = {};
     global.excludedPersonIds = [];
     global.excludedUsersIds = [];
-    global.excludedEncounterIds = [];
-    global.excludedLocationIds = [];
-    global.excludedProviderIds = [];
-    global.excludedVisitIds = [];
-    global.excludedObsIds = [];
     const utils = require('./utils');
     const stringValue = utils.stringValue;
 
@@ -166,23 +161,11 @@
 
     async function _prepareForDryRun(srcConn, destConn, config) {
         // prepare the excluded person_ids
-        utils.logInfo('Calculating users and persons to be excluded...');
+        utils.logInfo('Determining users records already existing in destination');
         await _usersAndAssociatedPersonsToExclude(srcConn, destConn);
 
-        utils.logInfo('Determining records already copied (criterion is similar UUID)...');
-        // Create mappings for records with same uuids for some tables.
-        let neededTables = [
-            { table: 'person', column: 'person_id', map: global.beehive.personMap, excluded: global.excludedPersonIds },
-            { table: 'location', column: 'location_id', map: global.beehive.locationMap, excluded: global.excludedLocationIds },
-            { table: 'encounter', column: 'encounter_id', map: global.beehive.encounterMap, excluded: global.excludedEncounterIds },
-            { table: 'provider', column: 'provider_id', map: global.beehive.providerMap, excluded: global.excludedProviderIds },
-            { table: 'visit', column: 'visit_id', map: global.beehive.visitMap, excluded: global.excludedVisitIds },
-            { table: 'obs', column: 'obs_id', map: global.beehive.obsMap, excluded: global.excludedObsIds },
-        ];
-
-        for(let neededTable of neededTables) {
-            await utils.mapSameUuidsRecords(srcConn, neededTable.table, neededTable.column, neededTable.excluded, neededTable.map);
-        }
+        utils.logInfo('Determining person records already copied (criterion is similar UUID)...');
+        await utils.mapSameUuidsRecords(srcConn, 'person', 'person_id', global.excludedPersonIds, global.beehive.personMap);
     }
 
     module.exports = {

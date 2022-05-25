@@ -84,7 +84,7 @@ async function orchestration() {
         destConn.query('START TRANSACTION');
         await copyPersonsUsersAndAssociatedTables(srcConn, destConn);
 
-        utils.logInfo('Consolidating locations...');
+        utils.logInfo('Copying locations...');
         let copiedLocations = await locationsCopier(srcConn, destConn);
         utils.logOk(`Ok...${copiedLocations} locations copied.`);
 

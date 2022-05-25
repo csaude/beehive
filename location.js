@@ -6,7 +6,7 @@ let beehive = global.beehive;
 let notYetUpdatedWithParentLocations = new Map();
 
 function prepareLocationInsert(rows, nextId) {
-    let insert = 'INSERT IGNORE INTO location(location_id, name, description, address1, ' +
+    let insert = 'INSERT INTO location(location_id, name, description, address1, ' +
         'address2, city_village, state_province, postal_code, country, latitude, ' +
         'longitude, creator, date_created, county_district, address3, address6, ' +
         'address5, address4, retired, retired_by, date_retired, retire_reason, ' +
@@ -85,45 +85,13 @@ async function updateParentForLocations(connection, idMap) {
     return idMap.size;
 }
 
-async function consolidateLocations(srcConn, destConn) {
-    let query = 'SELECT * FROM location order by date_created';
-    let [srcLocs] = await srcConn.query(query);
-    let [destLocs] = await destConn.query(query);
-    let [sql] = [null];
-
-    try {
-        let missingInDest = [];
-        srcLocs.forEach(srcLoc => {
-            let match = destLocs.find(destLoc => srcLoc['uuid'] === destLoc['uuid']);
-
-            if (match !== undefined && match !== null) {
-                beehive.locationMap.set(srcLoc['location_id'], match['location_id']);
-            } else {
-                missingInDest.push(srcLoc);
-            }
-        });
-
-        if (missingInDest.length > 0) {
-            let nextLocationId = await utils.getNextAutoIncrementId(destConn, 'location');
-
-            [sql] = prepareLocationInsert(missingInDest, nextLocationId);
-            utils.logDebug('Location insert statement:\n', utils.shortenInsert(sql));
-            let [result] = await destConn.query(sql);
-
-            await updateParentForLocations(destConn, notYetUpdatedWithParentLocations);
-
-            return result.affectedRows;
-        }
-        return 0;
-    }
-    catch(ex) {
-        logError('Error while consolidating locations');
-        if(sql) {
-            logError('Statement during error:');
-            logError(sql);
-        }
-        throw ex;
-    }
+async function copyLocations(srcConn, destConn) {
+    let condition = await utils.getExcludedIdsCondition(srcConn, 'location',
+                    'location_id', beehive.locationMap);
+    let copiedLocationsCount = await utils.copyTableRecords(srcConn, destConn, 'location',
+                    'location_id', prepareLocationInsert, condition);
+    await updateParentForLocations(destConn, notYetUpdatedWithParentLocations);
+    return copiedLocationsCount;
 }
 
-module.exports = consolidateLocations;
+module.exports = copyLocations;

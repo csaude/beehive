@@ -44,7 +44,6 @@ function prepareVisitInsert(rows, nextId) {
 
   let toBeinserted = '';
   rows.forEach(row => {
-    if(!global.excludedVisitIds.includes(row['visit_id'])) {
       if(toBeinserted.length > 1) {
         toBeinserted += ',';
       }
@@ -66,7 +65,6 @@ function prepareVisitInsert(rows, nextId) {
           + `${strValue(row['void_reason'])}, ${utils.uuid(row['uuid'])})`
 
       nextId++;
-    }
   });
 
   if(toBeinserted === '') {
@@ -76,54 +74,29 @@ function prepareVisitInsert(rows, nextId) {
   return [insertStatement, nextId];
 }
 
-async function consolidateVisitTypes(srcConn, destConn) {
-  let query = 'SELECT * FROM visit_type';
-  let [srcVisitTypes] = await srcConn.query(query);
-  let [destVisitTypes] = await destConn.query(query);
-
-  let missingInDest = [];
-  srcVisitTypes.forEach(srcVisitType => {
-    let match = destVisitTypes.find(destVisitType => {
-      return srcVisitType['name'] === destVisitType['name'];
-    });
-
-    if(match !== undefined && match !== null) {
-      beehive.visitTypeMap.set(srcVisitType['visit_type_id'],
-                          match['visit_type_id']);
-    }
-    else {
-      missingInDest.push(srcVisitType);
-    }
-  });
-
-  if(missingInDest.length > 0) {
-    let nextVisitTypeId =
-        await utils.getNextAutoIncrementId(destConn, 'visit_type');
-
-    let [sql] = prepareVisitTypeInsert(missingInDest, nextVisitTypeId);
-    utils.logDebug('visit_type insert statement:\n', sql);
-    let [result] = await destConn.query(sql);
-  }
+async function copyVisitTypes(srcConn, destConn) {
+  let condition = await utils.getExcludedIdsCondition(srcConn, 'visit_type',
+            'visit_type_id', beehive.visitTypeMap);
+    return await copyTableRecords(srcConn, destConn, 'visit_type',
+            'visit_type_id', prepareVisitTypeInsert, condition);
 }
 
 async function copyVisits(srcConn, destConn) {
-  let condition = null;
-  if(global.excludedVisitIds.length > 0) {
-      condition = `visit_id NOT IN (${global.excludedVisitIds.join(',')})`;
-  }
+  let condition = await utils.getExcludedIdsCondition(srcConn, 'visit',
+                    'visit_id', beehive.visitMap);
   return await copyTableRecords(srcConn, destConn, 'visit', 'visit_id',
                   prepareVisitInsert, condition);
 }
 
 async function main(srcConn, destConn) {
-    utils.logInfo('Consolidating visit types...');
-    await consolidateVisitTypes(srcConn, destConn);
+    utils.logInfo('Copying missing visit types...');
+    await copyVisitTypes(srcConn, destConn);
     utils.logOk('Ok...');
 
     let srcVisitCount = await utils.getCountIgnoringDestinationDuplicateUuids(srcConn, 'visit');
     let initialDestCount = await utils.getCount(destConn, 'visit');
 
-    utils.logInfo('Moving visits...');
+    utils.logInfo('Copying visits...');
     let copied = await copyVisits(srcConn, destConn);
     utils.logDebug('Number of visit records copied: ', copied);
     
@@ -134,7 +107,7 @@ async function main(srcConn, destConn) {
         utils.logOk(`Ok... ${copied}`);
     }
     else {
-        let error = `Problem moving visits: the actual final count ` +
+        let error = `Problem copying visits: the actual final count ` +
             `(${finalDestCount}) is not equal to the expected value ` +
             `(${expectedFinalCount})`;
         throw new Error(error);

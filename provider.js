@@ -2,7 +2,6 @@ const config = require('./config');
 const utils = require('./utils');
 const strValue = utils.stringValue;
 const copyTableRecords = utils.copyTableRecords;
-const consolidateTableRecords = utils.consolidateRecords;
 
 const beehive = global.beehive;
 
@@ -86,7 +85,7 @@ function prepareProviderAttributeTypeInsert(rows, nextId) {
 }
 
 function prepareProviderAttributeInsert(rows, nextId) {
-    let insert = 'INSERT IGNORE INTO provider_attribute(provider_attribute_id, ' +
+    let insert = 'INSERT INTO provider_attribute(provider_attribute_id, ' +
         'provider_id, attribute_type_id, value_reference, creator, ' +
         'date_created, changed_by, date_changed, voided, voided_by, ' +
         'date_voided, void_reason, uuid) VALUES ';
@@ -115,67 +114,39 @@ function prepareProviderAttributeInsert(rows, nextId) {
     return [insertStatement, nextId];
 }
 
-async function consolidateProviderAttributeTypes(srcConn, destConn) {
-    let query = 'SELECT * FROM provider_attribute_type';
-    let [srcProvAttTypes] = await srcConn.query(query);
-    let [destProvAttTypes] = await destConn.query(query);
-
-    let missingInDest = [];
-    srcProvAttTypes.forEach(srcProvAttType => {
-        let match = destProvAttTypes.find(destProvAttType => {
-            return (srcProvAttType['name'] === destProvAttType['name'] ||
-                        srcProvAttType['uuid'] === destProvAttType['uuid']);
-        });
-
-        if (match !== undefined && match !== null) {
-            beehive.providerAttributeTypeMap.set(srcProvAttType['provider_attribute_type_id'],
-                match['provider_attribute_type_id']);
-        } else {
-            missingInDest.push(srcProvAttType);
-        }
-    });
-
-    if (missingInDest.length > 0) {
-        let nextProvAttTypeId =
-            await utils.getNextAutoIncrementId(destConn, 'provider_attribute_type');
-
-        let [sql] = prepareProviderAttributeTypeInsert(missingInDest, nextProvAttTypeId);
-
-        utils.logDebug('provider_attribute_type insert statement:\n', sql);
-        let [result] = await destConn.query(sql);
-    }
+async function copyProviderAttributeTypes(srcConn, destConn) {
+    let condition = await utils.getExcludedIdsCondition(srcConn, 'provider_attribute_type',
+            'provider_attribute_type_id', beehive.providerAttributeTypeMap);
+    return await copyTableRecords(srcConn, destConn, 'provider_attribute_type',
+            'provider_attribute_type_id', prepareProviderAttributeTypeInsert, condition);
 }
 
-async function consolidateProviders(srcConn, destConn) {
-    return await consolidateTableRecords(srcConn, destConn, 'provider', 'uuid',
-        'provider_id', global.beehive.providerMap, prepareProviderInsert);
+async function copyProviders(srcConn, destConn) {
+    let condition = await utils.getExcludedIdsCondition(srcConn, 'provider',
+            'provider_id', beehive.providerMap);
+    return await copyTableRecords(srcConn, destConn, 'provider',
+            'provider_id', prepareProviderInsert, condition);
 }
 
 async function copyProviderAttributes(srcConn, destConn) {
-    let excludedProviderAttributesIds = [];
-    let condition = null;
-    await utils.mapSameUuidsRecords(srcConn, 'provider_attribute', 'provider_attribute_id', excludedProviderAttributesIds);
-    if(excludedProviderAttributesIds.length > 0) {
-        let toExclude = '(' + excludedProviderAttributesIds.join(',') + ')';
-        condition = `provider_attribute_id NOT IN ${toExclude}`;
-    }
+    let condition = await utils.getExcludedIdsCondition(srcConn, 'provider_attribute', 'provider_attribute_id');
     return await copyTableRecords(srcConn, destConn, 'provider_attribute',
-        'provider_attribute_id', prepareProviderAttributeInsert, condition);
+            'provider_attribute_id', prepareProviderAttributeInsert, condition);
 }
 
 async function main(srcConn, destConn) {
     let initialDestCount = await utils.getCount(destConn, 'provider');
 
     utils.logInfo('Copying providers...');
-    let copied = await consolidateProviders(srcConn, destConn);
+    let copied = await copyProviders(srcConn, destConn);
 
     let finalDestCount = await utils.getCount(destConn, 'provider');
     let expectedFinalCount = initialDestCount + copied;
     if(expectedFinalCount === finalDestCount) {
         utils.logOk(`Ok... ${copied} providers copied.`);
 
-        utils.logInfo('Consolidating provider attribute types...');
-        await consolidateProviderAttributeTypes(srcConn, destConn);
+        utils.logInfo('Copying provider attribute types...');
+        await copyProviderAttributeTypes(srcConn, destConn);
         utils.logOk('Ok...');
 
         utils.logInfo('Copying provider attributes...');

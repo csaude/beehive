@@ -77,39 +77,11 @@ function preparePersonAttributeInsert(rows, nextId) {
     return [insertStatement, nextId];
 }
 
-async function consolidatePersonAttributeTypes(srcConn, destConn) {
-    let query = 'SELECT * FROM person_attribute_type';
-    let toAdd = [], stmt;
-    try {
-        let [sAttributeTypes] = await srcConn.query(query);
-        let [dAttributeTypes] = await destConn.query(query);
-        sAttributeTypes.forEach(sAttributeType => {
-            let match = dAttributeTypes.find(dAttributeType => {
-                return (sAttributeType['name'] === dAttributeType['name'] ||
-                            sAttributeType['uuid'] === dAttributeType['uuid']);
-            });
-            if (match !== undefined) {
-                beehive.personAttributeTypeMap.set(sAttributeType['person_attribute_type_id'],
-                    match['person_attribute_type_id']);
-            } else {
-                toAdd.push(sAttributeType);
-            }
-        });
-        if (toAdd.length > 0) {
-            let nextId = await utils.getNextAutoIncrementId(destConn, 'person_attribute_type');
-
-            [stmt] = preparePersonAttributeTypeInsert(toAdd, nextId);
-            await destConn.query(stmt);
-        }
-    }
-    catch(ex) {
-        utils.logError(`An error occured when consolidating attribute types`);
-        if(stmt) {
-            utils.logError('Statement During error:');
-            utils.logError(stmt);
-        }
-        throw ex;
-    }
+async function copyPersonAttributeTypes(srcConn, destConn) {
+    let condition = await utils.getExcludedIdsCondition(srcConn, 'person_attribute_type',
+            'person_attribute_type_id', beehive.personAttributeTypeMap);
+    return await copyTableRecords(srcConn, destConn, 'person_attribute_type',
+            'person_attribute_type_id', preparePersonAttributeTypeInsert, condition);
 }
 
 async function findPersonAttributeTypesWithLocationValue(srcConn) {
@@ -142,7 +114,7 @@ async function copyPersonAttributes(srcConn, destConn) {
 
 async function main(srcConn, destConn) {
     utils.logInfo('Copying person attributes to destination...');
-    await consolidatePersonAttributeTypes(srcConn, destConn);
+    await copyPersonAttributeTypes(srcConn, destConn);
     findPersonAttributeTypesWithLocationValue(srcConn);
     await copyPersonAttributes(srcConn, destConn);
     utils.logOk(`Ok... Person attributes copied`)

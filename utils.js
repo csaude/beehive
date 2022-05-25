@@ -12,8 +12,8 @@ let getNextAutoIncrementId = async function(connection, table) {
         throw new Error('This utility function expects connection & table in that order');
     }
 
-    let query = `SELECT AUTO_INCREMENT as next_auto FROM information_schema.tables
-  WHERE table_name=? and table_schema=database()`;
+    let query = 'SELECT AUTO_INCREMENT as next_auto FROM information_schema.tables ' +
+                'WHERE table_name=? and table_schema=database()';
     try {
         let [r, f] = await connection.execute(query, [table]);
         return r[0]['next_auto'];
@@ -65,98 +65,6 @@ let stringValue = function(value) {
 
 function uuid(existing) {
     return `'${existing}'`;
-}
-
-/*
- * Utility function that consolidate table records for meta data tables such as
- * visit_type, program e.t.c
- * @param srcConn
- * @param destConn
- * @param table:String Name of table whose records are to be consolidated.
- * @param comparisonColumns: Stringn|Array Name of the column(s) to base
- *          comparisons between source & destination. For example, if you
- *          specify name for program table then two recorded with same name value
- *          are considered identical regardless of other field values.
- *          If array each element can either be a simple column name string or
- *          an object of the form below
- *           {
- *              name: 'column name',
- *              mapped: 'boolean',      // Whether column value is mapped or not
- *              mappedValueMap: Map     // if mapped the map value is found here.
- *          }
- * @param idColumn: String Name of the primary key field (id) to be stored in
- *          src => dest idMap for this table.
- * @param idMap: Map a map of src_table_id => dest_table_id for the table.
- * @param insertQueryPrepareFunction: function prepares the insert query
- * @return count of records added to destination. (or a promise that resolves to count)
- */
-let consolidateTableRecords = async function(srcConn, destConn, table,
-    comparisonColumns, idColumn, idMap, insertQueryPrepareFunction) {
-    let query = `SELECT * FROM ${table}`;
-    let [srcRecords] = await srcConn.query(query);
-    let [destRecords] = await destConn.query(query);
-
-    let missingInDest = [];
-    srcRecords.forEach(srcRecord => {
-        let match = destRecords.find(destRecord => {
-            if(Array.isArray(comparisonColumns)) {
-                let compareResult = true;
-                comparisonColumns.forEach(col => {
-                    if(typeof col === 'string') {
-                        compareResult = compareResult && (
-                            srcRecord[col] === destRecord[col]
-                        );
-                    }
-                    else {
-                        if(col.mapped) {
-                            compareResult = compareResult && (
-                                col.mappedValueMap.get(srcRecord[col.name]) === destRecord[col.name]
-                            );
-                        }
-                        else {
-                            compareResult = compareResult && (
-                                srcRecord[col.name] === destRecord[col.name]
-                            );
-                        }
-                    }
-                })
-                return compareResult;
-            }
-            else {
-                return srcRecord[comparisonColumns] === destRecord[comparisonColumns];
-            }
-        });
-
-        if (match !== undefined && match !== null) {
-            idMap.set(srcRecord[idColumn],
-                match[idColumn]);
-        } else {
-            missingInDest.push(srcRecord);
-        }
-    });
-
-    if (missingInDest.length > 0) {
-        let sql = null;
-        try {
-            let nextDestId = await getNextAutoIncrementId(destConn, table);
-
-            [sql] = insertQueryPrepareFunction(missingInDest, nextDestId);
-            logDebug(`${table} insert statement:\n ${shortenInsertStatement(sql)}`);
-            let [result] = await destConn.query(sql);
-            return result.affectedRows;
-        }
-        catch(ex) {
-            logError(`An error occured while consolidating ${table} records`);
-            if(sql) {
-                logError('Insert statement during error');
-                logError(sql);
-            }
-            throw ex;
-        }
-    }
-    else {
-        return 0;
-    }
 }
 
 /**
@@ -299,6 +207,24 @@ async function mapSameUuidsRecords(connection, table, column, arrayOfExcludedIds
     }
 }
 
+/**
+ * Utility function that creates a condition to exclude record ids with same UUID as another record in destination.
+ * @param {MysqlConnection} connection 
+ * @param {String} table 
+ * @param {String} idColumn 
+ * @param {Map} idMap 
+ * @returns {String} Condition to be added to where clause when fetching records to be copied
+ */
+async function getExcludedIdsCondition(connection, table, idColumn, idMap) {
+    let arrayOfExcludedIds = [];
+    await mapSameUuidsRecords(connection, table, idColumn, arrayOfExcludedIds, idMap);
+    if(arrayOfExcludedIds.length > 0) {
+        let toExclude = '(' + arrayOfExcludedIds.join(',') + ')';
+        return `${idColumn} NOT IN ${toExclude}`;
+    }
+    return null;
+}
+
 module.exports = {
     getNextAutoIncrementId: getNextAutoIncrementId,
     getCount: getCount,
@@ -313,9 +239,9 @@ module.exports = {
     logInfo: logInfo,
     uuid: uuid,
     shortenInsert: shortenInsertStatement,
-    consolidateRecords: consolidateTableRecords,
     personIdsToexclude: personIdsToexclude,
     addDecimalNumbers: addDecimalNumbers,
     subtractDecimalNumbers: subtractDecimalNumbers,
-    mapSameUuidsRecords: mapSameUuidsRecords
+    mapSameUuidsRecords: mapSameUuidsRecords,
+    getExcludedIdsCondition: getExcludedIdsCondition
 };

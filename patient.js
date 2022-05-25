@@ -128,41 +128,11 @@ function preparePatientIdentifierInsert(rows, nextId) {
     return [query, nextId];
 }
 
-async function consolidatePatientIdentifierTypes(srcConn, destConn) {
-    let query = 'SELECT * FROM patient_identifier_type';
-    let [srcPatIdTypes] = await srcConn.query(query);
-    let [destPatIdTypes] = await destConn.query(query);
-
-    let missingInDest = [];
-    srcPatIdTypes.forEach(srcPatIdType => {
-        let match = destPatIdTypes.find(destPatIdType => {
-            return srcPatIdType['name'] === destPatIdType['name'];
-        });
-
-        if (match !== undefined && match !== null) {
-            beehive.identifierTypeMap.set(srcPatIdType['patient_identifier_type_id'],
-                match['patient_identifier_type_id']);
-        } else {
-            missingInDest.push(srcPatIdType);
-        }
-    });
-
-    if (missingInDest.length > 0) {
-        let nextPatIdTypeId =
-            await utils.getNextAutoIncrementId(destConn, 'patient_identifier_type');
-
-        let [sql] = prepareIdentifierTypeInsert(missingInDest, nextPatIdTypeId);
-        try {
-            await destConn.query(sql);
-        } catch(ex) {
-            utils.logError('Error: While consolidating patient identifier types');
-            if(sql) {
-                utils.logError('SQL statement during error:');
-                utils.logError(sql);
-            }
-            throw ex;
-        }
-    }
+async function copyPatientIdentifierTypes(srcConn, destConn) {
+    let condition = await utils.getExcludedIdsCondition(srcConn, 'patient_identifier_type',
+            'patient_identifier_type_id', beehive.identifierTypeMap);
+    return await copyTableRecords(srcConn, destConn, 'patient_identifier_type',
+            'patient_identifier_type_id', prepareIdentifierTypeInsert, condition);
 }
 
 async function copyPatients(srcConn, destConn) {
@@ -174,14 +144,7 @@ async function copyPatients(srcConn, destConn) {
 }
 
 async function copyPatientIdentifiers(srcConn, destConn) {
-    let excludedPatientIdentifiersId = [];
-    let condition = null;
-    await utils.mapSameUuidsRecords(srcConn, 'patient_identifier', 'patient_identifier_id', excludedPatientIdentifiersId);
-    if(excludedPatientIdentifiersId.length > 0) {
-        let toExclude = '(' + excludedPatientIdentifiersId.join(',') + ')';
-        condition = `patient_identifier_id NOT IN ${toExclude}`;
-    }
-    
+    let condition = await utils.getExcludedIdsCondition(srcConn, 'patient_identifier', 'patient_identifier_id');
     return await copyTableRecords(srcConn, destConn, 'patient_identifier',
         'patient_identifier_id', preparePatientIdentifierInsert, condition);
 }
@@ -233,8 +196,8 @@ async function main(srcConn, destConn) {
     if (finalDestPatientCount === expectedFinalCount) {
         utils.logOk(`OK... ${copied} patients copied.`);
 
-        utils.logInfo('Consolidating & copying patient identifiers');
-        await consolidatePatientIdentifierTypes(srcConn, destConn);
+        utils.logInfo('Copying patient identifiers');
+        await copyPatientIdentifierTypes(srcConn, destConn);
         copied = await copyPatientIdentifiers(srcConn, destConn);
         utils.logOk(`Ok... ${copied} patient identifiers copied.`);
     } else {

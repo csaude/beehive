@@ -118,29 +118,27 @@ function prepareEncounterInsert(rows, nextId) {
 
     let toBeinserted = '';
     rows.forEach(row => {
-        if(!global.excludedEncounterIds.includes(row['encounter_id'])) {
-            if (toBeinserted.length > 1) {
-                toBeinserted += ',';
-            }
-            let voidedBy = row['voided_by'] === null ? null : beehive.userMap.get(row['voided_by']);
-            let changedBy = row['changed_by'] === null ? null : beehive.userMap.get(row['changed_by']);
-            let visitId = row['visit_id'] === null ? null : beehive.visitMap.get(row['visit_id']);
-	    let location_id = row['location_id'] === null ? null : beehive.locationMap.get(row['location_id']);
-
-            beehive.encounterMap.set(row['encounter_id'], nextId);
-
-            toBeinserted += `(${nextId}, ${beehive.encounterTypeMap.get(row['encounter_type'])}, ` +
-                `${beehive.personMap.get(row['patient_id'])}, ` +
-		`${location_id}, ${row['form_id']}, ` +
-                `${visitId}, ${strValue(utils.formatDate(row['encounter_datetime']))}, ` +
-                `${beehive.userMap.get(row['creator'])}, ` +
-                `${strValue(utils.formatDate(row['date_created']))}, ` +
-                `${changedBy}, ${strValue(utils.formatDate(row['date_changed']))}, ` +
-                `${row['voided']}, ${voidedBy}, ${strValue(utils.formatDate(row['date_voided']))}, ` +
-                `${strValue(row['void_reason'])}, ${utils.uuid(row['uuid'])})`
-
-            nextId++;
+        if (toBeinserted.length > 1) {
+            toBeinserted += ',';
         }
+        let voidedBy = row['voided_by'] === null ? null : beehive.userMap.get(row['voided_by']);
+        let changedBy = row['changed_by'] === null ? null : beehive.userMap.get(row['changed_by']);
+        let visitId = row['visit_id'] === null ? null : beehive.visitMap.get(row['visit_id']);
+        let location_id = row['location_id'] === null ? null : beehive.locationMap.get(row['location_id']);
+
+        beehive.encounterMap.set(row['encounter_id'], nextId);
+
+        toBeinserted += `(${nextId}, ${beehive.encounterTypeMap.get(row['encounter_type'])}, ` +
+            `${beehive.personMap.get(row['patient_id'])}, ` +
+            `${location_id}, ${row['form_id']}, ` +
+            `${visitId}, ${strValue(utils.formatDate(row['encounter_datetime']))}, ` +
+            `${beehive.userMap.get(row['creator'])}, ` +
+            `${strValue(utils.formatDate(row['date_created']))}, ` +
+            `${changedBy}, ${strValue(utils.formatDate(row['date_changed']))}, ` +
+            `${row['voided']}, ${voidedBy}, ${strValue(utils.formatDate(row['date_voided']))}, ` +
+            `${strValue(row['void_reason'])}, ${utils.uuid(row['uuid'])})`
+
+        nextId++;
     });
 
     if(toBeinserted === '') {
@@ -151,94 +149,41 @@ function prepareEncounterInsert(rows, nextId) {
     return [insertStatement, nextId];
 }
 
-async function consolidateEncounterTypes(srcConn, destConn) {
-    let query = 'SELECT * FROM encounter_type';
-    let [srcEncounterTypes] = await srcConn.query(query);
-    let [destEncounterTypes] = await destConn.query(query);
-
-    let missingInDest = [];
-    srcEncounterTypes.forEach(srcEncounterType => {
-        let match = destEncounterTypes.find(destEncounterType => {
-            return srcEncounterType['name'] === destEncounterType['name'];
-        });
-
-        if (match !== undefined && match !== null) {
-            beehive.encounterTypeMap.set(srcEncounterType['encounter_type_id'],
-                match['encounter_type_id']);
-        } else {
-            missingInDest.push(srcEncounterType);
-        }
-    });
-
-    if (missingInDest.length > 0) {
-        let nextEncounterTypeId =
-            await utils.getNextAutoIncrementId(destConn, 'encounter_type');
-
-        let [sql] = prepareEncounterTypeInsert(missingInDest, nextEncounterTypeId);
-        let [result] = await destConn.query(sql);
-        return result.affectedRows;
-    }
-    return 0;
+async function copyEncounterTypes(srcConn, destConn) {
+    let condition = await utils.getExcludedIdsCondition(srcConn, 'encounter_type',
+                    'encounter_type_id', beehive.encounterTypeMap);
+    return await copyTableRecords(srcConn, destConn, 'encounter_type',
+                    'encounter_type_id', prepareEncounterTypeInsert, condition);
 }
 
-async function consolidateEncounterRoles(srcConn, destConn) {
-    let query = 'SELECT * FROM encounter_role';
-    let [srcEncounterRoles] = await srcConn.query(query);
-    let [destEncounterRoles] = await destConn.query(query);
-
-    let missingInDest = [];
-    srcEncounterRoles.forEach(srcEncounterRole => {
-        let match = destEncounterRoles.find(destEncounterRole => {
-            return srcEncounterRole['name'] === destEncounterRole['name'];
-        });
-
-        if (match !== undefined && match !== null) {
-            beehive.encounterRoleMap.set(srcEncounterRole['encounter_role_id'],
-                match['encounter_role_id']);
-        } else {
-            missingInDest.push(srcEncounterRole);
-        }
-    });
-
-    if (missingInDest.length > 0) {
-        let nextEncounterRoleId =
-            await utils.getNextAutoIncrementId(destConn, 'encounter_role');
-
-        let [sql] = prepareEncounterRoleInsert(missingInDest, nextEncounterRoleId);
-        let [result] = await destConn.query(sql);
-        return result.affectedRows;
-    }
-    return 0;
+async function copyEncounterRoles(srcConn, destConn) {
+    let condition = await utils.getExcludedIdsCondition(srcConn, 'encounter_role',
+                    'encounter_role_id', beehive.encounterRoleMap);
+    return await copyTableRecords(srcConn, destConn, 'encounter_role',
+                    'encounter_role_id', prepareEncounterRoleInsert, condition);
 }
 
 async function copyEncounters(srcConn, destConn) {
-    let condition = false;
-    if(global.excludedEncounterIds.length > 0) {
-        condition = `encounter_id NOT IN (${global.excludedEncounterIds.join(',')})`;
-    } 
+    let condition = await utils.getExcludedIdsCondition(srcConn, 'encounter',
+                    'encounter_id', beehive.encounterMap);
     return await copyTableRecords(srcConn, destConn, 'encounter',
         'encounter_id', prepareEncounterInsert, condition);
 }
 
 async function copyEncounterProviders(srcConn, destConn) {
-    let excludedEncounterProviderIds = [];
-    let condition = false;
-    await utils.mapSameUuidsRecords(srcConn, 'encounter_provider', 'encounter_provider_id', excludedEncounterProviderIds);
-    if(excludedEncounterProviderIds.length > 0) {
-        let toExclude = '(' + excludedEncounterProviderIds.join(',') + ')';
-        condition = `encounter_provider_id NOT IN ${toExclude}`;
-    }
+    let condition = await utils.getExcludedIdsCondition(srcConn, 'encounter_provider',
+                    'encounter_provider_id');
     return await copyTableRecords(srcConn, destConn, 'encounter_provider',
         'encounter_provider_id', prepareEncounterProviderInsert, condition);
 }
 
 async function main(srcConn, destConn) {
-    utils.logInfo('Consolidating encounter types...');
-    let copiedTypes = await consolidateEncounterTypes(srcConn, destConn);
+    utils.logInfo('Copying encounter types...');
+    let copiedTypes = await copyEncounterTypes(srcConn, destConn);
     utils.logOk(`Ok... ${copiedTypes} encounter types copied.`);
 
-    utils.logInfo('Consolidating encounter roles...');
-    let copiedEncRoles = await consolidateEncounterRoles(srcConn, destConn);
+    utils.logInfo('Copying encounter roles...');
+    let copiedEncRoles = await copyEncounterRoles(srcConn, destConn);
     utils.logOk(`Ok... ${copiedEncRoles} encounter roles copied.`);
 
     utils.logInfo('Copying encounters...');

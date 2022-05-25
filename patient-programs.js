@@ -3,7 +3,6 @@ const logTime = utils.logTime;
 const strValue = utils.stringValue;
 const getCount = utils.getCount;
 const copyTableRecords = utils.copyTableRecords;
-const consolidateRecords = utils.consolidateRecords;
 
 let beehive = global.beehive;
 beehive.programMap = new Map();
@@ -175,82 +174,52 @@ function preparePatientStateInsert(rows) {
     return [query, -1];
 }
 
-async function consolidatePrograms(srcConn, destConn) {
-    return await consolidateRecords(srcConn, destConn, 'program', 'name',
-                    'program_id', beehive.programMap, prepareProgramInsert);
+async function copyPrograms(srcConn, destConn) {
+    let condition = await utils.getExcludedIdsCondition(srcConn, 'program',
+                     'program_id', beehive.programMap);
+    return await copyTableRecords(srcConn, destConn, 'program', 'program_id',
+                     prepareProgramInsert, condition);
 }
 
-async function consolidateProgramWorkflows(srcConn, destConn) {
-    let comparisonColumns = [
-        {
-            name: 'program_id',
-            mapped: true,
-            mappedValueMap: beehive.programMap
-        },
-        'concept_id'
-    ];
-    return await consolidateRecords(srcConn, destConn,
-            'program_workflow',
-            comparisonColumns,
-            'program_workflow_id',
-            beehive.programWorkflowMap,
-            prepareProgramWorkflowInsert);
+async function copyProgramWorkflows(srcConn, destConn) {
+    let condition = await utils.getExcludedIdsCondition(srcConn, 'program_workflow',
+            'program_workflow_id', beehive.programWorkflowMap);
+    return await copyTableRecords(srcConn, destConn, 'program_workflow',
+            'program_workflow_id', prepareProgramWorkflowInsert, condition);
 }
 
-async function consolidateProgramWorkflowStates(srcConn, destConn) {
-    let comparisonColumns = [
-        {
-            name: 'program_workflow_id',
-            mapped: true,
-            mappedValueMap: beehive.programWorkflowMap
-        },
-        'concept_id',
-        'initial',
-        'terminal'
-    ];
-    return await consolidateRecords(srcConn, destConn,
-            'program_workflow_state',
-            comparisonColumns,
-            'program_workflow_state_id',
-            beehive.programWorkflowStateMap,
-            prepareProgramWorkflowStateInsert);
+async function copyProgramWorkflowStates(srcConn, destConn) {
+    let condition = await utils.getExcludedIdsCondition(srcConn, 'program_workflow_state',
+            'program_workflow_state_id', beehive.programWorkflowStateMap);
+    return await copyTableRecords(srcConn, destConn, 'program_workflow_state',
+            'program_workflow_state_id', prepareProgramWorkflowStateInsert, condition);
 }
 
 async function copyPatientPrograms(srcConn, destConn) {
-    let excludedPatientProgramsIds = [];
-    let condition = null;
-    await utils.mapSameUuidsRecords(srcConn, 'patient_program', 'patient_program_id', excludedPatientProgramsIds);
-    if(excludedPatientProgramsIds.length > 0) {
-        let toExclude = '(' + excludedPatientProgramsIds.join(',') + ')';
-        condition = `patient_program_id NOT IN ${toExclude}`;
-    }
+    let condition = await utils.getExcludedIdsCondition(srcConn, 'patient_program',
+                    'patient_program_id');
     return await copyTableRecords(srcConn, destConn, 'patient_program',
                     'patient_program_id', preparePatientProgramInsert, condition);
 }
 
 async function copyPatientStates(srcConn, destConn) {
-    let excludedPatientStatesIds = [];
-    let condition = null;
-    await utils.mapSameUuidsRecords(srcConn, 'patient_state', 'patient_state_id', excludedPatientStatesIds);
-    if(excludedPatientStatesIds.length > 0) {
-        let toExclude = '(' + excludedPatientStatesIds.join(',') + ')';
-        condition = `patient_state_id NOT IN ${toExclude}`;
-    }
+    let condition = await utils.getExcludedIdsCondition(srcConn, 'patient_state',
+                    'patient_state_id');
     return await copyTableRecords(srcConn, destConn, 'patient_state',
                     'patient_state_id', preparePatientStateInsert, condition);
 }
 
 async function main(srcConn, destConn) {
-    utils.logInfo('Consolidating programs...');
-    let copied = await consolidatePrograms(srcConn, destConn);
+    utils.logInfo('Copying programs...');
+    let copied = await copyPrograms(srcConn, destConn);
     utils.logOk(`OK... ${copied} program copied to destination.`);
 
-    utils.logInfo('Consolidating programs workflows...');
-    copied = await consolidateProgramWorkflows(srcConn, destConn);
+    utils.logInfo('Copying programs workflows...');
+    copied = await copyProgramWorkflows(srcConn, destConn);
     utils.logOk(`OK... ${copied} program workflows copied to destination.`);
 
-    utils.logInfo('Consolidating programs workflow states...');
-    copied = await consolidateProgramWorkflowStates(srcConn, destConn);
+    utils.logInfo('Copying programs workflow states...');
+    copied = await copyProgramWorkflowStates(srcConn, destConn);
     utils.logOk(`OK... ${copied} program work flow states copied to destination.`);
 
     utils.logInfo('Copying patients programs...');

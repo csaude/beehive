@@ -3,13 +3,11 @@ const logTime = utils.logTime;
 const strValue = utils.stringValue;
 const getCount = utils.getCount;
 const copyTableRecords = utils.copyTableRecords;
-const consolidateRecords = utils.consolidateRecords;
 
 let beehive = global.beehive;
 beehive.gaacMap = new Map();
 beehive.gaacAffinityTypeMap = new Map();
 beehive.gaacReasonLeavingTypeMap = new Map();
-beehive.excludedGaacIds = [];
 
 function _prepareGaacTypeInsertTemplate(rows, nextId, type, typeMap) {
   let insert = `INSERT IGNORE INTO gaac_${type}_type(gaac_${type}_type_id, name, ` +
@@ -136,30 +134,32 @@ function prepareGaacMemberInsert(rows) {
     return [query, -1];
 }
 
-async function consolidateGaacAffinityTypes(srcConn, destConn) {
-    return await consolidateRecords(srcConn, destConn, 'gaac_affinity_type',
-            'name', 'gaac_affinity_type_id', beehive.gaacAffinityTypeMap,
-            prepareGaacAffinityTypeInsert);
+async function copyGaacAffinityTypes(srcConn, destConn) {
+    let condition = await utils.getExcludedIdsCondition(srcConn, 'gaac_affinity_type',
+            'gaac_affinity_type_id', beehive.gaacAffinityTypeMap);
+    return await copyTableRecords(srcConn, destConn, 'gaac_affinity_type',
+            'gaac_affinity_type_id', prepareGaacAffinityTypeInsert, condition);
 }
 
-async function consolidateGaacReasonLeavingTypes(srcConn, destConn) {
-    return await consolidateRecords(srcConn, destConn, 'gaac_reason_leaving_type',
-            'name', 'gaac_reason_leaving_type_id', beehive.gaacReasonLeavingTypeMap,
-            prepareGaacReasonLeavingTypeInsert);
+async function copyGaacReasonLeavingTypes(srcConn, destConn) {
+    let condition = await utils.getExcludedIdsCondition(srcConn, 'gaac_reason_leaving_type',
+            'gaac_reason_leaving_type_id', beehive.gaacReasonLeavingTypeMap);
+    return await copyTableRecords(srcConn, destConn, 'gaac_reason_leaving_type',
+            'gaac_reason_leaving_type_id', prepareGaacReasonLeavingTypeInsert, condition);
 }
 
 async function copyGaacs(srcConn, destConn) {
-    let condition = null;
-    if(beehive.excludedGaacIds.length > 0) {
-        condition = `gaac_id NOT IN (${beehive.excludedGaacIds.join(',')})`;
-    }
+    let condition = await utils.getExcludedIdsCondition(srcConn, 'gaac',
+                'gaac_id', beehive.gaacMap);
     return await copyTableRecords(srcConn, destConn, 'gaac', 'gaac_id',
                     prepareGaacInsert, condition);
 }
 
 async function copyGaacMembers(srcConn, destConn) {
+    let condition = await utils.getExcludedIdsCondition(srcConn, 'gaac_member',
+                'gaac_member_id', beehive.gaacMap);
     return await copyTableRecords(srcConn, destConn, 'gaac_member',
-                    'gaac_member_id', prepareGaacMemberInsert);
+                    'gaac_member_id', prepareGaacMemberInsert, condition);
 }
 
 async function main(srcConn, destConn) {
@@ -173,15 +173,12 @@ async function main(srcConn, destConn) {
         return;
     }
     
-    // Map same uuid records in gaac tables between source and destination
-    await utils.mapSameUuidsRecords(srcConn, 'gaac', 'gaac_id', beehive.gaacMap, beehive.excludedGaacIds);
-    
     utils.logInfo('Consolidating GAAC Affinity types...');
-    let copied = await consolidateGaacAffinityTypes(srcConn, destConn);
+    let copied = await copyGaacAffinityTypes(srcConn, destConn);
     utils.logOk(`Ok...${copied} records from gaac_affinity_type copied`);
 
     utils.logInfo('Consolidating GAAC Reason for leaving types...');
-    copied = await consolidateGaacReasonLeavingTypes(srcConn, destConn);
+    copied = await copyGaacReasonLeavingTypes(srcConn, destConn);
     utils.logOk(`Ok...${copied} records from gaac_reason_leaving_type copied`);
 
     utils.logInfo('Copying Gaacs...');
