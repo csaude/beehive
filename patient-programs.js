@@ -197,7 +197,7 @@ async function copyProgramWorkflowStates(srcConn, destConn) {
 
 async function copyPatientPrograms(srcConn, destConn) {
     let condition = await utils.getExcludedIdsCondition(srcConn, 'patient_program',
-                    'patient_program_id');
+                    'patient_program_id', beehive.patientProgramMap);
     return await copyTableRecords(srcConn, destConn, 'patient_program',
                     'patient_program_id', preparePatientProgramInsert, condition);
 }
